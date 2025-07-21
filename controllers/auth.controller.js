@@ -16,61 +16,103 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-//User Signup
+// User Signup Controller
 const signup = async (req, res) => {
   try {
     const { firstName, lastName, email, password } = req.body;
+
+    // Validation
     if (!firstName?.trim() || !lastName?.trim() || !email?.trim() || !password?.trim()) {
-      return res.status(400).json({ message: "FirstName, lastName, Email, and Password are required." });
+      return res.status(400).json({ message: "First name, last name, email, and password are required." });
     }
     if (!validator.isEmail(email)) {
       return res.status(400).json({ message: "Invalid email format." });
     }
-    const user = await User.findOne({ email });
-    if (user) {
+
+    // Check user
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
+    if (existing) {
       return res.status(409).json({ message: "Email is already registered." });
     }
+
+    // Hash password
     const saltRounds = Number(process.env.BCRYPT_SALT) || 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create user
     const newUser = new User({
       email: email.trim().toLowerCase(),
       password: hashedPassword,
-      profile : {firstName, lastName}
+      profile: { firstName, lastName }
     });
-    const data = await newUser.save();
-    return res.status(201).json({ message: "Signup successful.", data });
+    const saved = await newUser.save();
+
+    // Prepare userObj (do not return password)
+    const userObj = {
+      _id: saved._id,
+      email: saved.email,
+      profile: saved.profile,
+    };
+
+    // Token
+    const token = jwt.sign(
+      { userId: saved._id, email: saved.email },
+      process.env.JWT_SECRET_KEY,
+      { expiresIn: "2h" }
+    );
+    return res.status(201).json({
+      message: "Signup successful.",
+      token,
+      user: userObj
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal Server Error." });
   }
 };
 
-
-//User Login
+// User Login Controller
 const login = async (req, res) => {
   try {
-    
     const { email, password } = req.body;
+
+    // Validation
     if (!email || !password) {
       return res.status(400).json({ message: "Email and password are required." });
     }
     if (!validator.isEmail(email)) {
       return res.status(400).json({ message: "Invalid email format." });
     }
-    const user = await User.findOne({ email });
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
+
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return res.status(401).json({ message: "Incorrect credentials." });
     }
+
+    // Prepare userObj (do not return password)
+    const userObj = {
+      _id: user._id,
+      email: user.email,
+      profile: user.profile,
+    };
+
+    // Token
     const token = jwt.sign(
-      { userId: user._id, email: user.email,},
+      { userId: user._id, email: user.email },
       process.env.JWT_SECRET_KEY,
       { expiresIn: "2h" }
     );
-    return res.status(200).json({ message: "Login successful.", token });
+
+    return res.status(200).json({
+      message: "Login successful.",
+      token,
+      user: userObj
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal Server Error." });
